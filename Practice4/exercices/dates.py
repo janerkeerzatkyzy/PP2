@@ -1,38 +1,24 @@
 #1
 from datetime import datetime, timedelta
 
-current_time = datetime.now()
-result_time = current_time - timedelta(days=5)
-
-print(result_time)
+print(datetime.now() - timedelta(days=5))
 
 #2
 from datetime import datetime, timedelta
 
 today = datetime.now()
-yesterday = today - timedelta(days=1)
-tomorrow = today + timedelta(days=1)
-
+print(today - timedelta(days=1))
 print(today)
-print(yesterday)
-print(tomorrow)
+print(today + timedelta(days=1))
 
 #3
 from datetime import datetime
 
-current_time = datetime.now()
-no_microseconds = current_time.replace(microsecond=0)
-
-print(no_microseconds)
+print(datetime.now().replace(microsecond=0))
 
 #4
 from datetime import datetime
 
-first_text = input()
-second_text = input()
-
-first_time = datetime.strptime(first_text, "%Y-%m-%d %H:%M:%S")
-second_time = datetime.strptime(second_text, "%Y-%m-%d %H:%M:%S")
-
-difference_seconds = abs((second_time - first_time).total_seconds())
-print(int(difference_seconds))
+t1 = datetime.strptime(input(), "%Y-%m-%d %H:%M:%S")
+t2 = datetime.strptime(input(), "%Y-%m-%d %H:%M:%S")
+print(int(abs((t2 - t1).total_seconds())))
