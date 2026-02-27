@@ -1,7 +1,7 @@
 import json
 
 #1 Open JSON file
-with open("json/sample-data.json", "r") as f:
+with open("Practice4/json/sample-data.json", "r") as f:
     data = json.load(f)
 
 #2 Print header
