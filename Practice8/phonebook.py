@@ -1,125 +1,148 @@
 import psycopg2
-import csv
-from connect import DB_host, DB_base, DB_user, DB_pass
-conn = psycopg2.connect(
-    host=DB_host,
-    database=DB_base,
-    user=DB_user,
-    password=DB_pass
-)
+from config import load_config
 
-command = """CREATE TABLE IF NOT EXISTS phonebook (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(50) NOT NULL,
-    phone VARCHAR(20) UNIQUE NOT NULL
-);"""
 
-cur= conn.cursor()
-cur.execute(command)
-conn.commit()
+def get_connection():
+    try:
+        cfg = load_config()
+        print("CONFIG FROM config.py:", cfg)
+        conn = psycopg2.connect(**cfg)
+        print("CONNECTION OK")
+        return conn
+    except Exception as error:
+        print("ОШИБКА В get_connection:", repr(error))
+        return None
 
-while True:
-    print("\n--- PhoneBook ---")
-    print("1. Show all contacts")
-    print("2. Add contact (console)")
-    print("3. Import from csv")
-    print("4. Search")
-    print("5. Update phone by name")
-    print("6. Update name by phone")
-    print("7. Delete by name")
-    print("8. Delete by phone")
-    print("0. Exit")
-    choose = input()
-    if choose=="1":
-        cur.execute("SELECT * FROM phonebook")
-        print(cur.fetchall())
-    elif choose=="2":
-        print("Please, input first name and phone number")
-        f_name = input("Input first name: ")
-        ph_number = input("Input phone number: ")   
-        cur.execute("INSERT INTO phonebook (name, phone) VALUES (%s, %s) ON CONFLICT (phone) DO NOTHING", (f_name, ph_number))   
-        conn.commit()
-    elif choose=="3":
-        print("input file name: ")
-        file_name=input()
-        with open(file_name, newline='') as csvfile:
-            reader = csv.reader(csvfile)
-            for row in reader:
-               first_name, phon = row
-               cur.execute("INSERT INTO phonebook (name, phone) VALUES (%s, %s) ON CONFLICT (phone) DO NOTHING", (first_name, phon))
-            conn.commit()
-    elif choose == "4":
-        print("\nSearch contacts by filter:")
-        print("1. Search by partial name or phone")
-        print("2. Search by exact name")
-        print("3. Search by phone prefix")
-        sub = input("Choose filter: ")
 
-        if sub == "1":
-            pattern = input("Enter part of name or phone: ").strip()
-            if not pattern:
-                print("  (no contacts)")
-                continue
-            like_pattern = f"%{pattern}%"
-            cur.execute(
-                "SELECT * FROM phonebook WHERE name ILIKE %s OR phone ILIKE %s",
-                (like_pattern, like_pattern)
-            )
+def search_pattern(pattern):
+    conn = get_connection()
+    if not conn:
+        return
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM get_contacts_by_pattern(%s)", (pattern,))
+            results = cur.fetchall()
+            print("\nРезультаты поиска:")
+            if not results:
+                print("Ничего не найдено.")
+            else:
+                for row in results:
+                    print(f"- {row[0]}: {row[1]}")
+    except Exception as e:
+        print(f"Ошибка: {e}")
+    finally:
+        conn.close()
 
-        elif sub == "2":
-            name = input("Enter exact name: ").strip()
-            cur.execute(
-                "SELECT * FROM phonebook WHERE name = %s",
-                (name,)
-            )
 
-        elif sub == "3":
-            prefix = input("Enter phone prefix: ").strip()
-            cur.execute(
-                "SELECT * FROM phonebook WHERE phone LIKE %s",
-                (f"{prefix}%",)
-            )
+def upsert_user(name, phone):
+    conn = get_connection()
+    if not conn:
+        return
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute("CALL upsert_contact(%s, %s)", (name, phone))
+        print(f"Контакт '{name}' успешно добавлен/обновлен.")
+    except Exception as e:
+        print(f"Ошибка: {e}")
+    finally:
+        conn.close()
 
+
+def bulk_insert(names, phones):
+    conn = get_connection()
+    if not conn:
+        return
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute("CALL bulk_insert_contacts(%s, %s, %s)", (names, phones, []))
+            row = cur.fetchone()
+            invalid_data = row[0] if row else []
+
+            print("Массовая вставка завершена.")
+            if invalid_data:
+                print("Эти контакты не были добавлены:")
+                for bad_record in invalid_data:
+                    print(f"- {bad_record}")
+    except Exception as e:
+        print(f"Ошибка: {e}")
+    finally:
+        conn.close()
+
+
+def paginated_query(limit, offset):
+    conn = get_connection()
+    if not conn:
+        return
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM get_contacts_paginated(%s, %s)", (limit, offset))
+            results = cur.fetchall()
+            print(f"\nКонтакты (Limit: {limit}, Offset: {offset}):")
+            if not results:
+                print("Нет данных.")
+            else:
+                for row in results:
+                    print(f"- {row[0]}: {row[1]}")
+    except Exception as e:
+        print(f"Ошибка: {e}")
+    finally:
+        conn.close()
+
+
+def delete_user(search_val):
+    conn = get_connection()
+    if not conn:
+        return
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute("CALL delete_contact(%s)", (search_val,))
+        print(f"Команда удаления выполнена для: {search_val}")
+    except Exception as e:
+        print(f"Ошибка: {e}")
+    finally:
+        conn.close()
+
+
+def main():
+    while True:
+        print("\n--- ТЕЛЕФОННАЯ КНИГА (Stored Procedures) ---")
+        print("1. Поиск контакта (по паттерну)")
+        print("2. Добавить/Обновить контакт (Upsert)")
+        print("3. Массовая вставка с проверкой (Bulk Insert)")
+        print("4. Постраничный вывод (Pagination)")
+        print("5. Удалить контакт")
+        print("6. Выход")
+
+        choice = input("Выберите действие (1-6): ")
+
+        if choice == '1':
+            pattern = input("Введите часть имени или номера: ")
+            search_pattern(pattern)
+        elif choice == '2':
+            name = input("Введите имя: ")
+            phone = input("Введите телефон: ")
+            upsert_user(name, phone)
+        elif choice == '3':
+            print("Введите данные через запятую")
+            names = input("Имена: ").split(',')
+            phones = input("Телефоны: ").split(',')
+            if len(names) == len(phones):
+                bulk_insert([n.strip() for n in names], [p.strip() for p in phones])
+            else:
+                print("Ошибка: Количество имен и телефонов не совпадает!")
+        elif choice == '4':
+            limit = int(input("Сколько записей вывести (Limit)? ") or 5)
+            offset = int(input("Сколько записей пропустить (Offset)? ") or 0)
+            paginated_query(limit, offset)
+        elif choice == '5':
+            search_val = input("Введите имя или номер для удаления: ")
+            delete_user(search_val)
+        elif choice == '6':
+            print("До свидания!")
+            break
         else:
-            print("Invalid filter option")
-            continue
+            print("Неверный ввод.")
 
-        results = cur.fetchall()
-        if not results:
-            print("  (no contacts found)")
-        else:
-            for c in results:
-                print(f"  [{c[0]}] {c[1]} - {c[2]}")
-    elif choose=="5":
-        name = input("Input name to update phone: ")
-        new_phone = input("Input new phone: ")
 
-        command = "UPDATE phonebook SET phone = %s WHERE name = %s"
-        cur.execute(command, (new_phone, name))
-        conn.commit()
-        print(f"Updated {cur.rowcount} row(s)")
-    elif choose=="6":
-        phone = input("Input phone to update name: ")
-        new_name = input("Input new name: ")
-
-        command = "UPDATE phonebook SET name = %s WHERE phone = %s"
-        cur.execute(command, (new_name, phone))
-        conn.commit()
-        print(f"Updated {cur.rowcount} row(s)")
-    elif choose=="7":
-        name=input("Input name for deleting: ")
-        command="""DELETE FROM phonebook WHERE name=%s"""
-        cur.execute(command, (name,))
-        conn.commit()
-        print(f"Deleted {cur.rowcount} row(s)")
-    elif choose=="8":
-        phone=input("Input phone for deleting: ")
-        command="""DELETE FROM phonebook WHERE phone=%s """
-        cur.execute(command, (phone,))
-        conn.commit()
-        print(f"Deleted {cur.rowcount} row(s)")
-    elif choose=="0":
-        break
-    else:
-        print("Invalid syntax")
-    
+if __name__ == '__main__':
+    main()
